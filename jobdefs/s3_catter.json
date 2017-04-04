@@ -1,0 +1,28 @@
+{
+  "jobDefinitionName": "s3-catter",
+  "type": "container",
+  "parameters": {},
+  "retryStrategy": {
+    "attempts": 1
+  },
+  "containerProperties": {
+    "image": "${image}",
+    "jobRoleArn": "${jobRoleArn}",
+    "vcpus": 1,
+    "memory": 512,
+    "command": [
+      "aws",
+      "s3",
+      "cp",
+      "Ref::s3_path",
+      "-"
+    ],
+    "volumes": [],
+    "environment": [],
+    "mountPoints": [],
+    "ulimits": []
+  },
+  "parameters": {
+    "s3_path": "${s3_path}"
+  }
+}
