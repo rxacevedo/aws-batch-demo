@@ -198,7 +198,8 @@ resource "aws_iam_role_policy" "ecs_task_catter" {
       ],
       "Resource": [
         "arn:aws:s3:::${var.s3_bucket}",
-        "arn:aws:s3:::${var.s3_bucket}/${var.s3_key}"
+        "arn:aws:s3:::${var.s3_bucket}/${var.s3_key}",
+        "arn:aws:s3:::${var.s3_bucket}/another.txt"
       ]
     }
   ]

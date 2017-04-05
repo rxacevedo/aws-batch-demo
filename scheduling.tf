@@ -1,31 +1,65 @@
 ########################################################
 # Scheduling
 
-/*
+## Daily
 
-resource "aws_cloudwatch_event_rule" "task_cron" {
-  name = "cron-s3-catter-jobsubmit"
-  description = "RUN IT"
-  schedule_expression = "rate(1 minute)"
+resource "aws_cloudwatch_event_rule" "sekret_cron" {
+  name = "cat-sekret"
+  description = "cat the sekret.txt file"
+  schedule_expression = "rate(1 day)"
 }
 
-resource "aws_cloudwatch_event_target" "lambda_target" {
-  rule = "${aws_cloudwatch_event_rule.task_cron.name}"
+resource "aws_cloudwatch_event_target" "sekret_target" {
+  rule = "${aws_cloudwatch_event_rule.sekret_cron.name}"
   target_id = "JobSubmit"  # This is just a name really
   arn = "${aws_lambda_function.jobsubmit.arn}"
+  input = <<EOF
+  {
+    "jobName": "s3-catter-sekret",
+    "jobQueue": "batch-queue-1",
+    "jobDefinition": "s3-catter:6",
+    "parameters": {"s3_path": "s3://${var.s3_bucket}/sekret.txt"}
+  }
+EOF
 }
 
-resource "aws_lambda_permission" "allow_cloudwatch" {
-    statement_id = "AllowExecutionFromCloudWatch"
+resource "aws_lambda_permission" "allow_cloudwatch_sekret" {
+    statement_id = "allow-cw-schedule-sekret"
     action = "lambda:InvokeFunction"
     function_name = "${aws_lambda_function.jobsubmit.arn}"
     principal = "events.amazonaws.com"
-    # source_account = "111122223333"
-    source_arn = "${aws_cloudwatch_event_rule.task_cron.arn}"
-    # qualifier = "${aws_lambda_alias.test_alias.name}"
+    source_arn = "${aws_cloudwatch_event_rule.sekret_cron.arn}"
 }
 
-*/
+## Hourly
+
+resource "aws_cloudwatch_event_rule" "another_cron" {
+  name = "cat-another"
+  description = "cat the another.txt file"
+  schedule_expression = "rate(1 hour)"
+}
+
+resource "aws_cloudwatch_event_target" "another_target" {
+  rule = "${aws_cloudwatch_event_rule.another_cron.name}"
+  target_id = "JobSubmit"  # This is just a name really
+  arn = "${aws_lambda_function.jobsubmit.arn}"
+  input = <<EOF
+  {
+    "jobName": "s3-catter-another",
+    "jobQueue": "batch-queue-1",
+    "jobDefinition": "s3-catter:6",
+    "parameters": {"s3_path": "s3://${var.s3_bucket}/another.txt"}
+  }
+EOF
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_another" {
+    statement_id = "allow-cw-schedule-another"
+    action = "lambda:InvokeFunction"
+    function_name = "${aws_lambda_function.jobsubmit.arn}"
+    principal = "events.amazonaws.com"
+    source_arn = "${aws_cloudwatch_event_rule.another_cron.arn}"
+}
 
 ########################################################
 # Lambda (JobSubmit)
