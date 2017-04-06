@@ -73,7 +73,7 @@ data "archive_file" "jobsubmit" {
 resource "aws_lambda_function" "jobsubmit" {
   filename         = "jobsubmit.zip"
   function_name    = "jobsubmit"
-  role             = "${aws_iam_role.jobsubmit_execution_role.arn}"
+  role             = "${aws_iam_role.lambda_execution_role.arn}"
   handler          = "jobsubmit.invoke"
   source_code_hash = "${base64sha256(file("jobsubmit.zip"))}"
   runtime          = "python2.7"
@@ -82,8 +82,26 @@ resource "aws_lambda_function" "jobsubmit" {
   depends_on = ["data.archive_file.jobsubmit"]
 }
 
-resource "aws_iam_role" "jobsubmit_execution_role" {
-  name = "lambda-jobsubmit-execution-role"
+data "archive_file" "jobber" {
+  type        = "zip"
+  source_dir  = "./jobber"
+  output_path = "./jobber.zip"
+}
+
+resource "aws_lambda_function" "jobber" {
+  filename         = "jobber.zip"
+  function_name    = "jobber"
+  role             = "${aws_iam_role.lambda_execution_role.arn}"
+  handler          = "jobber.run"
+  source_code_hash = "${base64sha256(file("jobber.zip"))}"
+  runtime          = "python2.7"
+  timeout          = 120
+
+  depends_on = ["data.archive_file.jobber"]
+}
+
+resource "aws_iam_role" "lambda_execution_role" {
+  name = "lambda-execution-role"
   assume_role_policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -106,9 +124,13 @@ resource "aws_cloudwatch_log_group" "jobsubmit" {
   name = "/aws/lambda/jobsubmit"
 }
 
+resource "aws_cloudwatch_log_group" "jobber" {
+  name = "/aws/lambda/jobber"
+}
+
 resource "aws_iam_role_policy" "logging_permissions" {
-  name = "jobsubmit-logging-permissions"
-  role = "${aws_iam_role.jobsubmit_execution_role.id}"
+  name = "lambda-logging-permissions"
+  role = "${aws_iam_role.lambda_execution_role.id}"
   policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -118,7 +140,10 @@ resource "aws_iam_role_policy" "logging_permissions" {
           "Action": [
               "logs:*"
           ],
-          "Resource": "${aws_cloudwatch_log_group.jobsubmit.arn}"
+          "Resource": [
+            "${aws_cloudwatch_log_group.jobsubmit.arn}",
+            "${aws_cloudwatch_log_group.jobber.arn}"
+            ]
       }
   ]
 }
@@ -126,8 +151,8 @@ EOF
 }
 
 resource "aws_iam_role_policy" "jobsubmit_permissions" {
-  name = "jobsubmit-batch-permissions"
-  role = "${aws_iam_role.jobsubmit_execution_role.id}"
+  name = "batch-permissions"
+  role = "${aws_iam_role.lambda_execution_role.id}"
   policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -135,7 +160,11 @@ resource "aws_iam_role_policy" "jobsubmit_permissions" {
     {
       "Effect": "Allow",
       "Action": [
-        "batch:SubmitJob"
+        "batch:SubmitJob",
+        "batch:ListJobs",
+        "batch:DescribeComputeEnvironments",
+        "ecs:DescribeClusters",
+        "cloudwatch:PutMetricData"
       ],
       "Resource": "*"
     }

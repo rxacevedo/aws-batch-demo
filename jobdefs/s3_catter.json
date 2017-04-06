@@ -23,6 +23,6 @@
     "ulimits": []
   },
   "parameters": {
-    "s3_path": "${s3_path}"
+    "s3_path": "s3://${s3_bucket}/sekret.txt"
   }
 }
