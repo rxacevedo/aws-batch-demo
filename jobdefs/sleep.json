@@ -1,0 +1,23 @@
+{
+  "jobDefinitionName": "sleep",
+  "type": "container",
+  "parameters": {
+    "seconds": "10"
+  },
+  "retryStrategy": {
+    "attempts": 1
+  },
+  "containerProperties": {
+    "image": "busybox",
+    "vcpus": 1,
+    "memory": 10,
+    "command": [
+      "/bin/sleep",
+      "Ref::seconds"
+    ],
+    "volumes": [],
+    "environment": [],
+    "mountPoints": [],
+    "ulimits": []
+  }
+}

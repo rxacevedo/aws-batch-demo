@@ -141,8 +141,8 @@ resource "aws_launch_configuration" "batch" {
   }
 }
 
-resource "aws_autoscaling_group" "batch" {
-  name                  = "batch"
+resource "aws_autoscaling_group" "batch_manual" {
+  name                  = "batch-manual"
   launch_configuration  = "${aws_launch_configuration.batch.name}"
   min_size              = "${var.asg_min}"
   max_size              = "${var.asg_max}"
@@ -155,10 +155,38 @@ resource "aws_autoscaling_group" "batch" {
 
   tag {
     key = "Name"
-    value = "batch-worker"
+    value = "batch-worker-manual"
     propagate_at_launch = true
   }
 }
+
+resource "aws_autoscaling_group" "batch_dynamic" {
+  name                  = "batch-dynamic"
+  launch_configuration  = "${aws_launch_configuration.batch.name}"
+  min_size              = "${var.asg_min}"
+  max_size              = 2
+  # desired_capacity      = "${var.asg_desired}"
+  vpc_zone_identifier   = ["${aws_subnet.main.id}"]
+
+  # lifecycle {
+  #   create_before_destroy = true
+  # }
+
+  tag {
+    key = "Name"
+    value = "batch-worker-dynamic"
+    propagate_at_launch = true
+  }
+}
+
+resource "aws_autoscaling_policy" "batch_dynamic" {
+  name                   = "batch-dynamic"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 300
+  autoscaling_group_name = "${aws_autoscaling_group.batch_dynamic.name}"
+}
+
 
 ########################################################
 # Task config

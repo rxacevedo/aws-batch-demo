@@ -1,5 +1,5 @@
 ########################################################
-# Scheduling
+# Scheduled jobs
 
 ## Daily
 
@@ -7,6 +7,7 @@ resource "aws_cloudwatch_event_rule" "sekret_cron" {
   name = "cat-sekret"
   description = "cat the sekret.txt file"
   schedule_expression = "rate(1 day)"
+  is_enabled = false
 }
 
 resource "aws_cloudwatch_event_target" "sekret_target" {
@@ -37,6 +38,7 @@ resource "aws_cloudwatch_event_rule" "another_cron" {
   name = "cat-another"
   description = "cat the another.txt file"
   schedule_expression = "rate(1 hour)"
+  is_enabled = false
 }
 
 resource "aws_cloudwatch_event_target" "another_target" {
@@ -59,6 +61,67 @@ resource "aws_lambda_permission" "allow_cloudwatch_another" {
     function_name = "${aws_lambda_function.jobsubmit.arn}"
     principal = "events.amazonaws.com"
     source_arn = "${aws_cloudwatch_event_rule.another_cron.arn}"
+}
+
+## Minute
+
+resource "aws_cloudwatch_event_rule" "sleep_cron" {
+  name = "sleep"
+  description = "sleep"
+  schedule_expression = "rate(1 minute)"
+  is_enabled = true
+}
+
+resource "aws_cloudwatch_event_target" "sleep_target" {
+  rule = "${aws_cloudwatch_event_rule.sleep_cron.name}"
+  target_id = "JobSubmit"  # This is just a name really
+  arn = "${aws_lambda_function.jobsubmit.arn}"
+  input = <<EOF
+  {
+    "jobName": "sleep",
+    "jobQueue": "batch-queue-1",
+    "jobDefinition": "sleep:5",
+    "parameters": {"seconds": "60"}
+  }
+EOF
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_sleep" {
+  statement_id = "allow-cw-schedule-sleep"
+  action = "lambda:InvokeFunction"
+  function_name = "${aws_lambda_function.jobsubmit.arn}"
+  principal = "events.amazonaws.com"
+  source_arn = "${aws_cloudwatch_event_rule.sleep_cron.arn}"
+}
+
+########################################################
+# Jobber (monitors compute)
+
+resource "aws_cloudwatch_event_rule" "jobber_cron" {
+  name = "jobber"
+  description = "Monitor compute capacity available to a batch job queue"
+  schedule_expression = "rate(1 minute)"
+  is_enabled = true
+}
+
+resource "aws_cloudwatch_event_target" "jobber_target" {
+  rule = "${aws_cloudwatch_event_rule.jobber_cron.name}"
+  target_id = "Jobber"  # This is just a name really
+  arn = "${aws_lambda_function.jobber.arn}"
+  input = <<EOF
+  {
+    "jobQueue": "batch-queue-1",
+    "computeEnvironment": "batch-compute-1"
+  }
+EOF
+}
+
+resource "aws_lambda_permission" "allow_cloudwatch_jobber" {
+    statement_id = "allow-cw-schedule-jobber"
+    action = "lambda:InvokeFunction"
+    function_name = "${aws_lambda_function.jobber.arn}"
+    principal = "events.amazonaws.com"
+    source_arn = "${aws_cloudwatch_event_rule.jobber_cron.arn}"
 }
 
 ########################################################

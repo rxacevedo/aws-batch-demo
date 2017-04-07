@@ -2,12 +2,15 @@ import boto3
 import logging
 from botocore.exceptions import ClientError
 from datetime import datetime
+import time
 
 log = logging.getLogger()
 logging.basicConfig()
 log.setLevel(logging.INFO)
 
 NAMESPACE = 'Custom'
+INTERVAL = 15  # Seconds
+ITERS = 4
 
 
 def available_compute(ecs, cluster_arn):
@@ -50,18 +53,24 @@ def queue_size(batch, job_queue):
     :return:
     """
     try:
-        submitted = batch.list_jobs(
-            jobQueue=job_queue,
-            jobStatus='SUBMITTED',
-            maxResults=100
-        )
+
+        # submitted = batch.list_jobs(
+        #     jobQueue=job_queue,
+        #     jobStatus='SUBMITTED',
+        #     maxResults=100
+        # )
+
         runnable = batch.list_jobs(
             jobQueue=job_queue,
             jobStatus='RUNNABLE',
             maxResults=100
         )
-        size = len(submitted['jobSummaryList'] + runnable['jobSummaryList'])
+
+        # size = len(submitted['jobSummaryList'] + runnable['jobSummaryList'])
+
+        size = len(runnable['jobSummaryList'])
         return size
+
     except ClientError as e:
         log.error(e)
 
@@ -110,25 +119,33 @@ def run(event, context):
     batch = boto3.client('batch')
     ecs = boto3.client('ecs')
     cloudwatch = boto3.client('cloudwatch')
+    scale_out_needed_vals = list()
 
-    queue = queue_size(batch, event['jobQueue'])
-    # TODO: Compute environments can be determined based on the requested job queue
-    cluster_arn = ecs_cluster(batch, event['computeEnvironment'])
-    compute = available_compute(ecs, cluster_arn)
+    for i in range(ITERS):
 
-    log.info('Queue: {}, available compute: {}'.format(queue, compute))
+        log.info('Iter {} of {}'.format(i, ITERS))
 
-    scale_out_needed = True if queue > compute else False
+        queue = queue_size(batch, event['jobQueue'])
+        # TODO: Compute environments can be determined based on the requested job queue
+        cluster_arn = ecs_cluster(batch, event['computeEnvironment'])
+        compute = available_compute(ecs, cluster_arn)
 
-    if scale_out_needed:
-        log.info('Queue size is greater than available compute, scale-out required.')
+        log.info('Queue: {}, available compute: {}'.format(queue, compute))
 
-    post_cloudwatch_metric(cloudwatch, event['jobQueue'], scale_out_needed)
+        scale_out_needed = True if queue > compute else False
+        scale_out_needed_vals.append(scale_out_needed)
+
+        if scale_out_needed:
+            log.info('Queue size is greater than available compute, scale-out required.')
+
+        post_cloudwatch_metric(cloudwatch, event['jobQueue'], scale_out_needed)
+
+        time.sleep(INTERVAL)  # We should sleep until we've exceeded ITERS
 
     log.info('Exiting')
 
     return {
         'queue': queue,
         'compute': compute,
-        'scaleOutNeeded': scale_out_needed
+        'scaleOutNeeded': '|'.join([str(v) for v in scale_out_needed_vals])
     }
