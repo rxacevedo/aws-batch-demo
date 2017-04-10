@@ -163,8 +163,8 @@ resource "aws_autoscaling_group" "batch_manual" {
 resource "aws_autoscaling_group" "batch_dynamic" {
   name                  = "batch-dynamic"
   launch_configuration  = "${aws_launch_configuration.batch.name}"
-  min_size              = "${var.asg_min}"
-  max_size              = 2
+  min_size              = "${var.asg_min - 1}"
+  max_size              = "${var.asg_max + 1}"
   # desired_capacity      = "${var.asg_desired}"
   vpc_zone_identifier   = ["${aws_subnet.main.id}"]
 
@@ -181,10 +181,30 @@ resource "aws_autoscaling_group" "batch_dynamic" {
 
 resource "aws_autoscaling_policy" "batch_dynamic" {
   name                   = "batch-dynamic"
-  scaling_adjustment     = 1
   adjustment_type        = "ChangeInCapacity"
+  #  policy_type = "StepScaling"
   cooldown               = 300
+  scaling_adjustment     = 1
   autoscaling_group_name = "${aws_autoscaling_group.batch_dynamic.name}"
+
+  #  step_adjustment {
+  #    scaling_adjustment = -2
+  #    metric_interval_lower_bound = null
+  #    metric_interval_upper_bound = -3.0
+  #  }
+  #
+  #  step_adjustment {
+  #    scaling_adjustment = -1
+  #    metric_interval_lower_bound = -2.0
+  #    # metric_interval_upper_bound = 0.0
+  #  }
+  #
+  #  step_adjustment {
+  #    scaling_adjustment = 1
+  #    # metric_interval_lower_bound = 0.0
+  #    metric_interval_upper_bound = 2.0
+  #  }
+
 }
 
 

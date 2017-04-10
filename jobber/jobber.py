@@ -1,8 +1,14 @@
-import boto3
+import json
 import logging
-from botocore.exceptions import ClientError
-from datetime import datetime
+import os
 import time
+from datetime import datetime
+
+import boto3
+from botocore.exceptions import ClientError
+
+import requests
+from requests.exceptions import HTTPError, ConnectionError, SSLError, Timeout, RequestException
 
 log = logging.getLogger()
 logging.basicConfig()
@@ -11,6 +17,7 @@ log.setLevel(logging.INFO)
 NAMESPACE = 'Custom'
 INTERVAL = 15  # Seconds
 ITERS = 4
+SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
 
 
 def available_compute(ecs, cluster_arn):
@@ -136,7 +143,23 @@ def run(event, context):
         scale_out_needed_vals.append(scale_out_needed)
 
         if scale_out_needed:
-            log.info('Queue size is greater than available compute, scale-out required.')
+            message = 'Queue: {}, available compute: {}, scale-out required: {}'.format(queue, compute,
+                                                                                        scale_out_needed)
+            log.info(message)
+            data = dict(
+                text=message,
+                username='jobber-bot',
+                icon_emoji=':chart_with_upwards_trend:'
+            )
+            logging.info('Logging to Slack')
+            try:
+                requests.post(SLACK_WEBHOOK_URL, data=json.dumps(data))
+            except (HTTPError, ConnectionError, SSLError, Timeout) as e:
+                log.error('Could not talk to Slack!')
+                log.error(e)
+            except RequestException as e:
+                log.error('General exception:')
+                log.error(e)
 
         post_cloudwatch_metric(cloudwatch, event['jobQueue'], scale_out_needed)
 

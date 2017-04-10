@@ -3,6 +3,8 @@
 
 ## Daily
 
+# TODO: Fix target inputs
+
 resource "aws_cloudwatch_event_rule" "sekret_cron" {
   name = "cat-sekret"
   description = "cat the sekret.txt file"
@@ -69,7 +71,7 @@ resource "aws_cloudwatch_event_rule" "sleep_cron" {
   name = "sleep"
   description = "sleep"
   schedule_expression = "rate(1 minute)"
-  is_enabled = true
+  is_enabled = false
 }
 
 resource "aws_cloudwatch_event_target" "sleep_target" {
@@ -81,7 +83,7 @@ resource "aws_cloudwatch_event_target" "sleep_target" {
     "jobName": "sleep",
     "jobQueue": "batch-queue-1",
     "jobDefinition": "sleep:5",
-    "parameters": {"seconds": "60"}
+    "parameters": {"seconds": "20"}
   }
 EOF
 }
@@ -101,7 +103,7 @@ resource "aws_cloudwatch_event_rule" "jobber_cron" {
   name = "jobber"
   description = "Monitor compute capacity available to a batch job queue"
   schedule_expression = "rate(1 minute)"
-  is_enabled = true
+  is_enabled = false
 }
 
 resource "aws_cloudwatch_event_target" "jobber_target" {
@@ -159,6 +161,12 @@ resource "aws_lambda_function" "jobber" {
   source_code_hash = "${base64sha256(file("jobber.zip"))}"
   runtime          = "python2.7"
   timeout          = 120
+
+  environment {
+    variables {
+      SLACK_WEBHOOK_URL = "${var.slack_webhook_url}"
+    }
+  }
 
   depends_on = ["data.archive_file.jobber"]
 }

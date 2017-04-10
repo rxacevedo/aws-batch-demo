@@ -19,3 +19,4 @@ variable "asg_instance_type" {
 # Job stuff
 variable "image" {}
 variable "s3_bucket" {}
+variable "slack_webhook_url" {}

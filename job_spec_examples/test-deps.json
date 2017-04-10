@@ -1,0 +1,21 @@
+{
+  "jobs": [
+    {
+      "jobName": "Job1",
+      "jobDefinition": "s3-catter:6",
+      "jobQueue": "batch-queue-1",
+      "parameters": {
+        "s3_path": "s3://rxacevedo-store/another.txt"
+      },
+      "dependsOn": ["Sleeper999"]
+    },
+    {
+      "jobName": "Sleeper999",
+      "jobDefinition": "sleep:5",
+      "jobQueue": "batch-queue-1",
+      "parameters": {
+        "seconds": 30
+      }
+    }
+  ]
+}
