@@ -97,19 +97,19 @@ resource "aws_lambda_permission" "allow_cloudwatch_sleep" {
 }
 
 ########################################################
-# Jobber (monitors compute)
+# Capacity monitor
 
-resource "aws_cloudwatch_event_rule" "jobber_cron" {
-  name = "jobber"
+resource "aws_cloudwatch_event_rule" "monitor_cron" {
+  name = "monitor"
   description = "Monitor compute capacity available to a batch job queue"
   schedule_expression = "rate(1 minute)"
   is_enabled = false
 }
 
-resource "aws_cloudwatch_event_target" "jobber_target" {
-  rule = "${aws_cloudwatch_event_rule.jobber_cron.name}"
-  target_id = "Jobber"  # This is just a name really
-  arn = "${aws_lambda_function.jobber.arn}"
+resource "aws_cloudwatch_event_target" "monitor_target" {
+  rule = "${aws_cloudwatch_event_rule.monitor_cron.name}"
+  target_id = "CapacityMonitor"  # This is just a name really
+  arn = "${aws_lambda_function.monitor.arn}"
   input = <<EOF
   {
     "jobQueue": "batch-queue-1",
@@ -118,12 +118,12 @@ resource "aws_cloudwatch_event_target" "jobber_target" {
 EOF
 }
 
-resource "aws_lambda_permission" "allow_cloudwatch_jobber" {
-    statement_id = "allow-cw-schedule-jobber"
+resource "aws_lambda_permission" "allow_cloudwatch_monitor" {
+    statement_id = "allow-cw-schedule-monitor"
     action = "lambda:InvokeFunction"
-    function_name = "${aws_lambda_function.jobber.arn}"
+    function_name = "${aws_lambda_function.monitor.arn}"
     principal = "events.amazonaws.com"
-    source_arn = "${aws_cloudwatch_event_rule.jobber_cron.arn}"
+    source_arn = "${aws_cloudwatch_event_rule.monitor_cron.arn}"
 }
 
 ########################################################
@@ -131,7 +131,7 @@ resource "aws_lambda_permission" "allow_cloudwatch_jobber" {
 
 data "archive_file" "jobsubmit" {
   type        = "zip"
-  source_dir  = "./jobsubmit"
+  source_dir  = "./lambda/jobsubmit"
   output_path = "./jobsubmit.zip"
 }
 
@@ -147,28 +147,32 @@ resource "aws_lambda_function" "jobsubmit" {
   depends_on = ["data.archive_file.jobsubmit"]
 }
 
-data "archive_file" "jobber" {
+data "archive_file" "monitor" {
   type        = "zip"
-  source_dir  = "./jobber"
-  output_path = "./jobber.zip"
+  source_dir  = "./lambda/monitor"
+  output_path = "./monitor.zip"
 }
 
-resource "aws_lambda_function" "jobber" {
-  filename         = "jobber.zip"
-  function_name    = "jobber"
+resource "aws_lambda_function" "monitor" {
+  filename         = "monitor.zip"
+  function_name    = "monitor"
   role             = "${aws_iam_role.lambda_execution_role.arn}"
-  handler          = "jobber.run"
-  source_code_hash = "${base64sha256(file("jobber.zip"))}"
+  handler          = "monitor.run"
+  source_code_hash = "${base64sha256(file("monitor.zip"))}"
   runtime          = "python2.7"
   timeout          = 120
 
   environment {
     variables {
       SLACK_WEBHOOK_URL = "${var.slack_webhook_url}"
+      METRIC_NAMESPACE = "Custom"
+      METRIC_NAME = "JobQueue"
+      INTERVAL = "15"
+      ITERS = "4"
     }
   }
 
-  depends_on = ["data.archive_file.jobber"]
+  depends_on = ["data.archive_file.monitor"]
 }
 
 resource "aws_iam_role" "lambda_execution_role" {
@@ -195,8 +199,8 @@ resource "aws_cloudwatch_log_group" "jobsubmit" {
   name = "/aws/lambda/jobsubmit"
 }
 
-resource "aws_cloudwatch_log_group" "jobber" {
-  name = "/aws/lambda/jobber"
+resource "aws_cloudwatch_log_group" "monitor" {
+  name = "/aws/lambda/monitor"
 }
 
 resource "aws_iam_role_policy" "logging_permissions" {
@@ -213,7 +217,7 @@ resource "aws_iam_role_policy" "logging_permissions" {
           ],
           "Resource": [
             "${aws_cloudwatch_log_group.jobsubmit.arn}",
-            "${aws_cloudwatch_log_group.jobber.arn}"
+            "${aws_cloudwatch_log_group.monitor.arn}"
             ]
       }
   ]

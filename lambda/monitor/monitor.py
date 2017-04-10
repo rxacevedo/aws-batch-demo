@@ -14,9 +14,10 @@ log = logging.getLogger()
 logging.basicConfig()
 log.setLevel(logging.INFO)
 
-NAMESPACE = 'Custom'
-INTERVAL = 15  # Seconds
-ITERS = 4
+NAMESPACE = os.environ['METRIC_NAMESPACE']
+METRIC_NAME = os.environ['METRIC_NAME']
+INTERVAL = int(os.environ['INTERVAL'])  # Seconds
+ITERS = int(os.environ['ITERS'])
 SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
 
 
@@ -100,7 +101,7 @@ def post_cloudwatch_metric(cloudwatch, job_queue, scale_out_needed):
                     'MetricName': 'ScaleOutFactor',
                     'Dimensions': [
                         {
-                            'Name': 'JobQueue',
+                            'Name': METRIC_NAME,
                             'Value': job_queue
                         },
                     ],
@@ -148,7 +149,7 @@ def run(event, context):
             log.info(message)
             data = dict(
                 text=message,
-                username='jobber-bot',
+                username='monitor-bot',
                 icon_emoji=':chart_with_upwards_trend:'
             )
             logging.info('Logging to Slack')

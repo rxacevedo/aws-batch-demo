@@ -1,13 +1,19 @@
 jobs:
-- dependsOn:
-  - Sleeper999
-  jobDefinition: s3-catter:6
-  jobName: Job1
-  jobQueue: batch-queue-1
-  parameters:
-    s3_path: s3://rxacevedo-store/another.txt
-- jobDefinition: sleep:5
-  jobName: Sleeper999
-  jobQueue: batch-queue-1
-  parameters:
-    seconds: 30
+  - dependsOn:
+    - Sleeper999
+    - JobJob
+    jobDefinition: s3-catter:6
+    jobName: Job1
+    jobQueue: batch-queue-1
+    parameters:
+      s3_path: s3://rxacevedo-store/another.txt
+  - jobDefinition: sleep:5
+    jobName: Sleeper999
+    jobQueue: batch-queue-1
+    parameters:
+      seconds: 30
+  - jobDefinition: sleep:5
+    jobName: JobJob
+    jobQueue: batch-queue-1
+    parameters:
+      seconds: 60
