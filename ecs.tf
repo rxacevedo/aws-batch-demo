@@ -120,8 +120,18 @@ echo ECS_CLUSTER=$${cluster} > /etc/ecs/ecs.config
 EOF
 
   vars {
-    # cluster = "${aws_ecs_cluster.batch.name}"
     cluster = "batch-compute-1_Batch_650da530-43e4-3f28-a5ed-ceae37712632"
+  }
+}
+
+data "template_file" "init_dynamic" {
+  template = <<EOF
+#!/bin/bash
+echo ECS_CLUSTER=$${cluster} > /etc/ecs/ecs.config
+EOF
+
+  vars {
+    cluster = "batch-compute-dynamic_Batch_9cda9537-dcf4-3360-a550-a5f2a7be4fbb"
   }
 }
 
@@ -135,6 +145,22 @@ resource "aws_launch_configuration" "batch" {
   security_groups      = ["${aws_security_group.batch.id}"]
   iam_instance_profile = "${aws_iam_instance_profile.ecs.id}"
   user_data            = "${data.template_file.init.rendered}"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_launch_configuration" "batch_dynamic" {
+  name_prefix          = "batch"
+  # image_id             = "${lookup(var.ecs_amis, "us-east-1")}"
+  image_id             = "${data.aws_ami.ecs_ami.id}"
+  # instance_type        = "m4.large"
+  instance_type        = "${var.asg_instance_type}"
+  key_name             = "aws"
+  security_groups      = ["${aws_security_group.batch.id}"]
+  iam_instance_profile = "${aws_iam_instance_profile.ecs.id}"
+  user_data            = "${data.template_file.init_dynamic.rendered}"
 
   lifecycle {
     create_before_destroy = true
@@ -162,9 +188,9 @@ resource "aws_autoscaling_group" "batch_manual" {
 
 resource "aws_autoscaling_group" "batch_dynamic" {
   name                  = "batch-dynamic"
-  launch_configuration  = "${aws_launch_configuration.batch.name}"
-  min_size              = "${var.asg_min - 1}"
-  max_size              = "${var.asg_max + 1}"
+  launch_configuration  = "${aws_launch_configuration.batch_dynamic.name}"
+  min_size              = "${var.dynamic_asg_min}"
+  max_size              = "${var.dynamic_asg_max}"
   # desired_capacity      = "${var.asg_desired}"
   vpc_zone_identifier   = ["${aws_subnet.main.id}"]
 
@@ -177,34 +203,6 @@ resource "aws_autoscaling_group" "batch_dynamic" {
     value = "batch-worker-dynamic"
     propagate_at_launch = true
   }
-}
-
-resource "aws_autoscaling_policy" "batch_dynamic" {
-  name                   = "batch-dynamic"
-  adjustment_type        = "ChangeInCapacity"
-  #  policy_type = "StepScaling"
-  cooldown               = 300
-  scaling_adjustment     = 1
-  autoscaling_group_name = "${aws_autoscaling_group.batch_dynamic.name}"
-
-  #  step_adjustment {
-  #    scaling_adjustment = -2
-  #    metric_interval_lower_bound = null
-  #    metric_interval_upper_bound = -3.0
-  #  }
-  #
-  #  step_adjustment {
-  #    scaling_adjustment = -1
-  #    metric_interval_lower_bound = -2.0
-  #    # metric_interval_upper_bound = 0.0
-  #  }
-  #
-  #  step_adjustment {
-  #    scaling_adjustment = 1
-  #    # metric_interval_lower_bound = 0.0
-  #    metric_interval_upper_bound = 2.0
-  #  }
-
 }
 
 

@@ -18,7 +18,11 @@ NAMESPACE = os.environ['METRIC_NAMESPACE']
 METRIC_NAME = os.environ['METRIC_NAME']
 INTERVAL = int(os.environ['INTERVAL'])  # Seconds
 ITERS = int(os.environ['ITERS'])
+SCALE_CAP = int(os.environ['SCALE_CAP'])
 SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
+
+SCALING_NEEDED_MESSAGE = 'Queue: {}, available compute: {}, {} required {}'
+SCALING_CAPPED_MESSAGE = ':exclamation: Queue: {}, available compute: {}, scaling is needed but capped by SCALE_LIMIT: {} :exclamation:'
 
 
 def available_compute(ecs, cluster_arn):
@@ -83,7 +87,7 @@ def queue_size(batch, job_queue):
         log.error(e)
 
 
-def post_cloudwatch_metric(cloudwatch, job_queue, scale_out_needed):
+def post_cloudwatch_metric(cloudwatch, dimensions, value):
     """
     Posts a single metric value/datum to CloudWatch, reflecting whether or not the compute
     environment for this request is in need of scale-out.
@@ -94,22 +98,19 @@ def post_cloudwatch_metric(cloudwatch, job_queue, scale_out_needed):
     :return: None
     """
     try:
+
         cloudwatch.put_metric_data(
             Namespace=NAMESPACE,
             MetricData=[
                 {
-                    'MetricName': 'ScaleOutFactor',
-                    'Dimensions': [
-                        {
-                            'Name': METRIC_NAME,
-                            'Value': job_queue
-                        },
-                    ],
+                    'MetricName': METRIC_NAME,
+                    'Dimensions': dimensions,
                     'Timestamp': datetime.utcnow(),
-                    'Value': 1 if scale_out_needed else 0
+                    'Value': value
                 }
             ]
         )
+
     except ClientError as e:
         log.error(e)
 
@@ -122,14 +123,14 @@ def run(event, context):
     :return:
     """
 
-    log.info('Starting jobber')
+    log.info('Starting monitor')
 
     batch = boto3.client('batch')
     ecs = boto3.client('ecs')
     cloudwatch = boto3.client('cloudwatch')
-    scale_out_needed_vals = list()
+    scale_out_needed_vals, scale_in_needed_vals = list(), list()
 
-    for i in range(ITERS):
+    for i in range(1, ITERS + 1):
 
         log.info('Iter {} of {}'.format(i, ITERS))
 
@@ -143,26 +144,29 @@ def run(event, context):
         scale_out_needed = True if queue > compute else False
         scale_out_needed_vals.append(scale_out_needed)
 
-        if scale_out_needed:
-            message = 'Queue: {}, available compute: {}, scale-out required: {}'.format(queue, compute,
-                                                                                        scale_out_needed)
-            log.info(message)
-            data = dict(
-                text=message,
-                username='monitor-bot',
-                icon_emoji=':chart_with_upwards_trend:'
-            )
-            logging.info('Logging to Slack')
-            try:
-                requests.post(SLACK_WEBHOOK_URL, data=json.dumps(data))
-            except (HTTPError, ConnectionError, SSLError, Timeout) as e:
-                log.error('Could not talk to Slack!')
-                log.error(e)
-            except RequestException as e:
-                log.error('General exception:')
-                log.error(e)
+        scale_in_needed = True if queue < compute else False
+        scale_in_needed_vals.append(scale_in_needed)
 
-        post_cloudwatch_metric(cloudwatch, event['jobQueue'], scale_out_needed)
+        if i % 2 == 0:
+            if scale_out_needed:
+                notify_slack('scale-out', compute, queue)
+            if scale_in_needed:
+                notify_slack('scale-in', compute, queue)
+
+        metric_value = 1 if scale_out_needed else -1 if scale_in_needed else 0
+
+        dimensions = [
+            {
+                'Name': 'JobQueue',
+                'Value': event['jobQueue']
+            },
+            {
+                'Name': 'ComputeEnvironment',
+                'Value': event['computeEnvironment']
+            }
+        ]
+
+        post_cloudwatch_metric(cloudwatch, dimensions=dimensions, value=metric_value)
 
         time.sleep(INTERVAL)  # We should sleep until we've exceeded ITERS
 
@@ -171,5 +175,45 @@ def run(event, context):
     return {
         'queue': queue,
         'compute': compute,
-        'scaleOutNeeded': '|'.join([str(v) for v in scale_out_needed_vals])
+        'scaleOutNeeded': '|'.join([str(v) for v in scale_out_needed_vals]),
+        'scaleInNeeded': '|'.join([str(v) for v in scale_in_needed_vals])
     }
+
+
+def notify_slack(scaling_type, compute, queue):
+    message = scaling_message(compute, queue, scaling_type)
+
+    log.info(message)
+
+    data = dict(
+        text=message,
+        username='monitor-bot',
+        icon_emoji=':passenger_ship:'
+    )
+    logging.info('Logging to Slack')
+    try:
+        requests.post(SLACK_WEBHOOK_URL, data=json.dumps(data))
+    except (HTTPError, ConnectionError, SSLError, Timeout) as e:
+        log.error('Could not talk to Slack!')
+        log.error(e)
+    except RequestException as e:
+        log.error('General exception:')
+        log.error(e)
+
+
+def scaling_message(compute, queue, scaling_type):
+    if scaling_type == 'scale-out':
+        icon_emoji = ':arrow_up:'
+        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
+    elif scaling_type == 'scale-in':
+        icon_emoji = ':arrow_down:'
+        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
+    else:
+        icon_emoji = ':question:'
+        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
+
+    if scaling_type == 'scale-out' and str(compute) == SCALE_CAP:
+        icon_emoji = ':exclamation:'
+        message = SCALING_CAPPED_MESSAGE.format(queue, compute, SCALE_CAP)
+
+    return message
