@@ -144,6 +144,15 @@ def run(event, context):
         scale_out_needed = True if queue > compute else False
         scale_out_needed_vals.append(scale_out_needed)
 
+        # TODO: If scale-in is "needed," then we should ensure that only inactive nodes
+        # (those not currently running tasks) are not affected by scale-in. This can be
+        # done by either:
+        # 1. Setting an ECS node to DRAINING, then de-registering from the ASG and
+        # adjusting capacity accordingly (more effective, more time-consuming)
+        #
+        # 2. Preventing scale-in from occuring until all tasks have been worked. (less
+        # effective, but also requires less time)
+        #
         scale_in_needed = True if queue < compute else False
         scale_in_needed_vals.append(scale_in_needed)
 

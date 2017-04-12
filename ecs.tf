@@ -1,51 +1,60 @@
 data "aws_ami" "ecs_ami" {
-  most_recent      = true
+  most_recent = true
 
   filter {
-    name   = "owner-alias"
-    values = ["amazon"]
+    name = "owner-alias"
+
+    values = [
+      "amazon",
+    ]
   }
 
   filter {
-    name   = "name"
-    values = ["amzn-ami-*-amazon-ecs-optimized"]
-  }
+    name = "name"
 
+    values = [
+      "amzn-ami-*-amazon-ecs-optimized",
+    ]
+  }
 }
 
 ########################################################
 # ECS Cluster
 
-# TODO: Not necessary
-/*resource "aws_ecs_cluster" "batch" {
-  name = "batch"
-}*/
+# TODO: Develop this!
 
 ########################################################
 # Instance/ASG config
 
 # For nodes in ECS/Batch ASG
 resource "aws_security_group" "batch" {
-  name = "batch-access"
+  name        = "batch-access"
   description = "Container Instance Allowed Ports"
   vpc_id      = "${aws_vpc.main.id}"
 
   ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-    self        = true
+    from_port = 22
+    to_port   = 22
+    protocol  = "tcp"
+
+    cidr_blocks = [
+      "0.0.0.0/0",
+    ]
+
+    self = true
   }
 
   egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-    self        = true
-  }
+    from_port = 0
+    to_port   = 0
+    protocol  = "-1"
 
+    cidr_blocks = [
+      "0.0.0.0/0",
+    ]
+
+    self = true
+  }
 }
 
 # TODO: AWS trust relationship principals
@@ -54,7 +63,8 @@ resource "aws_security_group" "batch" {
 # "ecs-tasks.amazonaws.com" - Allows TASKS to be controlled by ECS
 
 resource "aws_iam_role" "ecs_instance" {
-  name               = "ecs-instance-role"
+  name = "ecs-instance-role"
+
   assume_role_policy = <<EOF
 {
   "Version": "2008-10-17",
@@ -76,6 +86,7 @@ EOF
 resource "aws_iam_role_policy" "ecs_instance" {
   name = "ecs-api-calls"
   role = "${aws_iam_role.ecs_instance.id}"
+
   policy = <<EOF
 {
   "Version": "2012-10-17",
@@ -110,7 +121,10 @@ EOF
 resource "aws_iam_instance_profile" "ecs" {
   name = "ecs-instance-profile"
   path = "/"
-  roles = ["${aws_iam_role.ecs_instance.id}"]
+
+  roles = [
+    "${aws_iam_role.ecs_instance.id}",
+  ]
 }
 
 data "template_file" "init" {
@@ -136,13 +150,15 @@ EOF
 }
 
 resource "aws_launch_configuration" "batch" {
-  name_prefix          = "batch"
-  # image_id             = "${lookup(var.ecs_amis, "us-east-1")}"
-  image_id             = "${data.aws_ami.ecs_ami.id}"
-  # instance_type        = "m4.large"
-  instance_type        = "${var.asg_instance_type}"
-  key_name             = "aws"
-  security_groups      = ["${aws_security_group.batch.id}"]
+  name_prefix   = "batch"
+  image_id      = "${data.aws_ami.ecs_ami.id}"
+  instance_type = "${var.asg_instance_type}"
+  key_name      = "aws"
+
+  security_groups = [
+    "${aws_security_group.batch.id}",
+  ]
+
   iam_instance_profile = "${aws_iam_instance_profile.ecs.id}"
   user_data            = "${data.template_file.init.rendered}"
 
@@ -152,13 +168,15 @@ resource "aws_launch_configuration" "batch" {
 }
 
 resource "aws_launch_configuration" "batch_dynamic" {
-  name_prefix          = "batch"
-  # image_id             = "${lookup(var.ecs_amis, "us-east-1")}"
-  image_id             = "${data.aws_ami.ecs_ami.id}"
-  # instance_type        = "m4.large"
-  instance_type        = "${var.asg_instance_type}"
-  key_name             = "aws"
-  security_groups      = ["${aws_security_group.batch.id}"]
+  name_prefix   = "batch"
+  image_id      = "${data.aws_ami.ecs_ami.id}"
+  instance_type = "${var.asg_instance_type}"
+  key_name      = "aws"
+
+  security_groups = [
+    "${aws_security_group.batch.id}",
+  ]
+
   iam_instance_profile = "${aws_iam_instance_profile.ecs.id}"
   user_data            = "${data.template_file.init_dynamic.rendered}"
 
@@ -168,49 +186,47 @@ resource "aws_launch_configuration" "batch_dynamic" {
 }
 
 resource "aws_autoscaling_group" "batch_manual" {
-  name                  = "batch-manual"
-  launch_configuration  = "${aws_launch_configuration.batch.name}"
-  min_size              = "${var.asg_min}"
-  max_size              = "${var.asg_max}"
-  desired_capacity      = "${var.asg_desired}"
-  vpc_zone_identifier   = ["${aws_subnet.main.id}"]
+  name                 = "batch-manual"
+  launch_configuration = "${aws_launch_configuration.batch.name}"
+  min_size             = "${var.asg_min}"
+  max_size             = "${var.asg_max}"
+  desired_capacity     = "${var.asg_desired}"
 
-  # lifecycle {
-  #   create_before_destroy = true
-  # }
+  vpc_zone_identifier = [
+    "${aws_subnet.main.id}",
+  ]
 
   tag {
-    key = "Name"
-    value = "batch-worker-manual"
+    key                 = "Name"
+    value               = "batch-worker-manual"
     propagate_at_launch = true
   }
 }
 
 resource "aws_autoscaling_group" "batch_dynamic" {
-  name                  = "batch-dynamic"
-  launch_configuration  = "${aws_launch_configuration.batch_dynamic.name}"
-  min_size              = "${var.dynamic_asg_min}"
-  max_size              = "${var.dynamic_asg_max}"
-  # desired_capacity      = "${var.asg_desired}"
-  vpc_zone_identifier   = ["${aws_subnet.main.id}"]
+  name                 = "batch-dynamic"
+  launch_configuration = "${aws_launch_configuration.batch_dynamic.name}"
+  min_size             = "${var.dynamic_asg_min}"
+  max_size             = "${var.dynamic_asg_max}"
 
-  # lifecycle {
-  #   create_before_destroy = true
-  # }
+  # desired_capacity      = "${var.asg_desired}"
+  vpc_zone_identifier = [
+    "${aws_subnet.main.id}",
+  ]
 
   tag {
-    key = "Name"
-    value = "batch-worker-dynamic"
+    key                 = "Name"
+    value               = "batch-worker-dynamic"
     propagate_at_launch = true
   }
 }
-
 
 ########################################################
 # Task config
 
 resource "aws_iam_role" "ecs_task" {
-  name               = "ecs-task-role"
+  name = "ecs-task-role"
+
   assume_role_policy = <<EOF
 {
   "Version": "2008-10-17",
