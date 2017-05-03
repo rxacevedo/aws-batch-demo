@@ -122,9 +122,7 @@ resource "aws_iam_instance_profile" "ecs" {
   name = "ecs-instance-profile"
   path = "/"
 
-  roles = [
-    "${aws_iam_role.ecs_instance.id}",
-  ]
+  role = "${aws_iam_role.ecs_instance.id}"
 }
 
 data "template_file" "init" {
@@ -193,7 +191,7 @@ resource "aws_autoscaling_group" "batch_manual" {
   desired_capacity     = "${var.asg_desired}"
 
   vpc_zone_identifier = [
-    "${aws_subnet.main.id}",
+    "${aws_subnet.public.id}",
   ]
 
   tag {
@@ -211,7 +209,7 @@ resource "aws_autoscaling_group" "batch_dynamic" {
 
   # desired_capacity      = "${var.asg_desired}"
   vpc_zone_identifier = [
-    "${aws_subnet.main.id}",
+    "${aws_subnet.public.id}",
   ]
 
   tag {

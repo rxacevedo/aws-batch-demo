@@ -6,6 +6,7 @@ from datetime import datetime
 
 import boto3
 from botocore.exceptions import ClientError
+from enum import Enum
 
 import requests
 from requests.exceptions import HTTPError, ConnectionError, SSLError, Timeout, RequestException
@@ -19,10 +20,18 @@ METRIC_NAME = os.environ['METRIC_NAME']
 INTERVAL = int(os.environ['INTERVAL'])  # Seconds
 ITERS = int(os.environ['ITERS'])
 SCALE_CAP = int(os.environ['SCALE_CAP'])
+AUTOSCALING_POLICY_NAME = os.environ['AUTOSCALING_POLICY_NAME']
+AUTOSCALING_GROUP_NAME = os.environ['AUTOSCALING_GROUP_NAME']
 SLACK_WEBHOOK_URL = os.environ['SLACK_WEBHOOK_URL']
 
 SCALING_NEEDED_MESSAGE = 'Queue: {}, available compute: {}, {} required {}'
 SCALING_CAPPED_MESSAGE = ':exclamation: Queue: {}, available compute: {}, scaling is needed but capped by SCALE_LIMIT: {} :exclamation:'
+
+
+class ScalingType(Enum):
+    SCALE_OUT = 1
+    NONE = 0
+    SCALE_IN = -1
 
 
 def available_compute(ecs, cluster_arn):
@@ -57,7 +66,7 @@ def ecs_cluster(batch, environment):
         log.error(e)
 
 
-def queue_size(batch, job_queue):
+def queue_size(batch, job_queue, job_status, max_results=100):
     """
     Gauges a Batch job queue's size based on the number of SUBMITTED/RUNNABLE jobs.
     :param batch: The Batch client
@@ -66,19 +75,11 @@ def queue_size(batch, job_queue):
     """
     try:
 
-        # submitted = batch.list_jobs(
-        #     jobQueue=job_queue,
-        #     jobStatus='SUBMITTED',
-        #     maxResults=100
-        # )
-
         runnable = batch.list_jobs(
             jobQueue=job_queue,
-            jobStatus='RUNNABLE',
-            maxResults=100
+            jobStatus=job_status,
+            maxResults=max_results
         )
-
-        # size = len(submitted['jobSummaryList'] + runnable['jobSummaryList'])
 
         size = len(runnable['jobSummaryList'])
         return size
@@ -113,6 +114,21 @@ def post_cloudwatch_metric(cloudwatch, dimensions, value):
 
     except ClientError as e:
         log.error(e)
+        raise e
+
+
+def update_autoscaling_policy(client, scaling_adjustment):
+    try:
+        client.put_scaling_policy(
+            AutoScalingGroupName=AUTOSCALING_GROUP_NAME,
+            PolicyName=AUTOSCALING_POLICY_NAME,
+            ScalingAdjustment=scaling_adjustment,
+            AdjustmentType='ExactCapacity',
+            Cooldown=300
+        )
+    except ClientError as e:
+        log.error(e)
+        raise e
 
 
 def run(event, context):
@@ -123,26 +139,36 @@ def run(event, context):
     :return:
     """
 
+    # TODO: Since we are using autoscaling policies to drive scale-in/scale-out, this function should fail
+    # and post an error to Slack if the ASG in the environment variables does not have a policy attached
+    # to it
     log.info('Starting monitor')
 
     batch = boto3.client('batch')
     ecs = boto3.client('ecs')
     cloudwatch = boto3.client('cloudwatch')
+    autoscaling = boto3.client('autoscaling')
+
     scale_out_needed_vals, scale_in_needed_vals = list(), list()
 
     for i in range(1, ITERS + 1):
 
         log.info('Iter {} of {}'.format(i, ITERS))
 
-        queue = queue_size(batch, event['jobQueue'])
+        target, adjusted = compute_target_capacity(batch, event)
+
+        # log.info('Target equation: {} + {}'.format(runnable, running))
+        # log.info('Adjusted target equation: {} - ({} - {})'.format(target, SCALE_CAP, target))
+
         # TODO: Compute environments can be determined based on the requested job queue
         cluster_arn = ecs_cluster(batch, event['computeEnvironment'])
         compute = available_compute(ecs, cluster_arn)
 
-        log.info('Queue: {}, available compute: {}'.format(queue, compute))
+        log.info('Compute: {} / target: {} / adjusted target = {}'.format(
+            compute, target, adjusted
+        ))
 
-        scale_out_needed = True if queue > compute else False
-        scale_out_needed_vals.append(scale_out_needed)
+        scaling_type = determine_scaling(adjusted, compute)
 
         # TODO: If scale-in is "needed," then we should ensure that only inactive nodes
         # (those not currently running tasks) are not affected by scale-in. This can be
@@ -152,17 +178,35 @@ def run(event, context):
         #
         # 2. Preventing scale-in from occuring until all tasks have been worked. (less
         # effective, but also requires less time)
-        #
-        scale_in_needed = True if queue < compute else False
-        scale_in_needed_vals.append(scale_in_needed)
 
         if i % 2 == 0:
-            if scale_out_needed:
-                notify_slack('scale-out', compute, queue)
-            if scale_in_needed:
-                notify_slack('scale-in', compute, queue)
+            # Warning scenario
+            if scaling_type == ScalingType.NONE and target > SCALE_CAP:
+                notify_slack(message='Target capacity: {} greater than scaling limit: {}.'.format(
+                    target,
+                    SCALE_CAP))
+            elif scaling_type == ScalingType.NONE and target <= compute:
+                log.info('Capacity is healthy.')
+                # else:
+                #     log.info('!!! UNKNOWN SCENARIO !!!')
+                #     notify_slack(message='Unknown scaling scenario - compute: {}, target: {}, adjusted target: {}'.format(
+                #         compute, target, adjusted
+                #     ))
 
-        metric_value = 1 if scale_out_needed else -1 if scale_in_needed else 0
+        # We can scale out
+        if scaling_type == ScalingType.SCALE_OUT:
+            log.info(
+                'Scaling out, adjusted target: {}, scale cap: {}. Updating autoscaling policy: {} :arrow_up:'.format(
+                    adjusted,
+                    SCALE_CAP,
+                    AUTOSCALING_POLICY_NAME))
+            update_autoscaling_policy(client=autoscaling, scaling_adjustment=adjusted)
+        # We can scale in
+        elif scaling_type == ScalingType.SCALE_IN:
+            notify_slack(message='Reducing target autoscaling capacity to {} :arrow_down:'.format(adjusted))
+            update_autoscaling_policy(client=autoscaling, scaling_adjustment=adjusted)
+
+        metric_value = scaling_type.value
 
         dimensions = [
             {
@@ -177,29 +221,67 @@ def run(event, context):
 
         post_cloudwatch_metric(cloudwatch, dimensions=dimensions, value=metric_value)
 
+        log.info('Sleeping for {} seconds...'.format(INTERVAL))
         time.sleep(INTERVAL)  # We should sleep until we've exceeded ITERS
 
     log.info('Exiting')
 
     return {
-        'queue': queue,
+        'target': target,
         'compute': compute,
-        'scaleOutNeeded': '|'.join([str(v) for v in scale_out_needed_vals]),
-        'scaleInNeeded': '|'.join([str(v) for v in scale_in_needed_vals])
+        'scalingAction': str(scaling_type)
     }
 
 
-def notify_slack(scaling_type, compute, queue):
-    message = scaling_message(compute, queue, scaling_type)
+def compute_target_capacity(batch, event):
+    """
+    Computes the target cluster capacity based on queue size.
+    :param batch:
+    :param event:
+    :return:
+    """
+    runnable = queue_size(batch, event['jobQueue'], job_status='RUNNABLE')
+    running = queue_size(batch, event['jobQueue'], job_status='RUNNING')
+    target = runnable + running
+    adjusted = SCALE_CAP if target > SCALE_CAP else target
 
-    log.info(message)
+    return target, adjusted
 
+
+def determine_scaling(adjusted, compute):
+    """
+    Determine the scaling action (enum type) based on current compute capacity and adjusted compute target.
+    :param adjusted:
+    :param compute:
+    :return:
+    """
+    scale_out_needed = True if adjusted > compute else False
+    # THIS IS IMPORTANT - only scale in when adjusted/queue is 0
+    scale_in_needed = True if adjusted == 0 and compute > 0 else False
+
+    # notify_slack(message='Scale-out needed? {}'.format(scale_out_needed))
+    # notify_slack(message='Scale-in needed? {}'.format(scale_in_needed))
+
+    return ScalingType.SCALE_OUT if scale_out_needed \
+        else ScalingType.SCALE_IN if scale_in_needed \
+        else ScalingType.NONE
+
+
+def notify_slack(message):
+    """
+    Send a notification to the configured Slack webhook.
+    :param message:
+    :return:
+    """
     data = dict(
         text=message,
         username='monitor-bot',
         icon_emoji=':passenger_ship:'
     )
+
     logging.info('Logging to Slack')
+    # log.debug(message)
+
     try:
         requests.post(SLACK_WEBHOOK_URL, data=json.dumps(data))
     except (HTTPError, ConnectionError, SSLError, Timeout) as e:
@@ -208,21 +290,3 @@ def notify_slack(scaling_type, compute, queue):
     except RequestException as e:
         log.error('General exception:')
         log.error(e)
-
-
-def scaling_message(compute, queue, scaling_type):
-    if scaling_type == 'scale-out':
-        icon_emoji = ':arrow_up:'
-        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
-    elif scaling_type == 'scale-in':
-        icon_emoji = ':arrow_down:'
-        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
-    else:
-        icon_emoji = ':question:'
-        message = SCALING_NEEDED_MESSAGE.format(queue, compute, scaling_type, icon_emoji)
-
-    if scaling_type == 'scale-out' and str(compute) == SCALE_CAP:
-        icon_emoji = ':exclamation:'
-        message = SCALING_CAPPED_MESSAGE.format(queue, compute, SCALE_CAP)
-
-    return message

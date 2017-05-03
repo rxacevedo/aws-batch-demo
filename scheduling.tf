@@ -174,7 +174,7 @@ resource "aws_lambda_function" "jobsubmit" {
   role             = "${aws_iam_role.lambda_execution_role.arn}"
   handler          = "jobsubmit.invoke"
   source_code_hash = "${base64sha256(file("jobsubmit.zip"))}"
-  runtime          = "python2.7"
+  runtime          = "python3.6"
   timeout          = 120
 
   depends_on = [
@@ -194,17 +194,19 @@ resource "aws_lambda_function" "monitor" {
   role             = "${aws_iam_role.lambda_execution_role.arn}"
   handler          = "monitor.run"
   source_code_hash = "${base64sha256(file("monitor.zip"))}"
-  runtime          = "python2.7"
-  timeout          = 140                                         # Seconds
+  runtime          = "python3.6"
+  timeout          = 210                                         # Seconds, 3.5 min
 
   environment {
     variables {
-      SLACK_WEBHOOK_URL = "${var.slack_webhook_url}"
-      METRIC_NAMESPACE  = "Custom"
-      METRIC_NAME       = "ScaleFactor"
-      INTERVAL          = "15"
-      ITERS             = "8"
-      SCALE_CAP         = "${var.dynamic_asg_max}"
+      SLACK_WEBHOOK_URL       = "${var.slack_webhook_url}"
+      METRIC_NAMESPACE        = "Custom"
+      METRIC_NAME             = "ScaleFactor"
+      INTERVAL                = "15"
+      ITERS                   = "12"
+      SCALE_CAP               = "${var.dynamic_asg_max}"
+      AUTOSCALING_GROUP_NAME  = "${aws_autoscaling_group.batch_dynamic.name}"
+      AUTOSCALING_POLICY_NAME = "${aws_autoscaling_policy.batch_dynamic.name}"
     }
   }
 
@@ -303,7 +305,8 @@ resource "aws_iam_role_policy" "jobsubmit_permissions" {
         "batch:ListJobs",
         "batch:DescribeComputeEnvironments",
         "ecs:DescribeClusters",
-        "cloudwatch:PutMetricData"
+        "cloudwatch:PutMetricData",
+        "autoscaling:PutScalingPolicy"
       ],
       "Resource": "*"
     }

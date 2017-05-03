@@ -1,13 +1,5 @@
-resource "aws_autoscaling_policy" "batch_dynamic_scale_out" {
-  name                   = "batch-dynamic-scale-out"
-  adjustment_type        = "ChangeInCapacity"
-  cooldown               = 300
-  scaling_adjustment     = 1
-  autoscaling_group_name = "${aws_autoscaling_group.batch_dynamic.name}"
-}
-
-resource "aws_autoscaling_policy" "batch_dynamic_scale_in" {
-  name                   = "batch-dynamic-scale-in"
+resource "aws_autoscaling_policy" "batch_dynamic" {
+  name                   = "batch-dynamic"
   adjustment_type        = "ExactCapacity"
   cooldown               = 300
   scaling_adjustment     = 0
@@ -24,7 +16,7 @@ resource "aws_cloudwatch_metric_alarm" "batch_dynamic_scale_out" {
   statistic                 = "Sum"
   threshold                 = "3"
   alarm_description         = "This metric monitors the period in which scale-out is needed"
-  alarm_actions             = ["${aws_autoscaling_policy.batch_dynamic_scale_out.arn}"]
+  alarm_actions             = ["${aws_autoscaling_policy.batch_dynamic.arn}"]
   insufficient_data_actions = []
 
   dimensions {
@@ -43,7 +35,7 @@ resource "aws_cloudwatch_metric_alarm" "batch_dynamic_scale_in" {
   statistic                 = "Sum"
   threshold                 = "-3"
   alarm_description         = "This metric monitors the period in which scale-in is needed"
-  alarm_actions             = ["${aws_autoscaling_policy.batch_dynamic_scale_in.arn}"]
+  alarm_actions             = ["${aws_autoscaling_policy.batch_dynamic.arn}"]
   insufficient_data_actions = []
 
   dimensions {
